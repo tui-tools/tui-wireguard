@@ -47,7 +47,7 @@
     },
     {
       "key": "w",
-      "action": "Save the interface's runtime config (wg-quick save)"
+      "action": "Save the interface's runtime config (wg-quick save, keys kept out of the conf)"
     },
     {
       "key": "a / x",
