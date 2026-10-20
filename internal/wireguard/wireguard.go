@@ -134,6 +134,10 @@ type State struct {
 	// running, it is in charge of forwarding and the FORWARD column is read
 	// from it instead of from `iptables -S` (issue #30).
 	Firewalld Firewalld `json:"-"`
+	// Kernel is the kernel's forwarding switch and the sysctl.d drop-ins
+	// that set it (issue #33): forwarding rules on a kernel that does not
+	// forward pass nothing.
+	Kernel Kernel `json:"-"`
 }
 
 // Forwarding sources: what the FORWARD column was read from.
@@ -517,7 +521,8 @@ PostUp = wg set %%i private-key %s
 	var b strings.Builder
 	b.WriteString(conf)
 	b.WriteString("# Forwarding server: peers reach the networks behind this host through " +
-		fwd.Egress + ".\n# ip_forward is left on at down; something else may rely on it.\n")
+		fwd.Egress + ".\n# net.ipv4.ip_forward is set by " + ForwardDropInPath(iface) +
+		", not by a hook here.\n")
 	if fwd.Manager == ManagerFirewalld {
 		b.WriteString("# firewalld is in charge: the rules are the firewalld policy " + policyNameOr(iface) +
 			",\n# created at up and deleted at down. Each --reload drops runtime-only firewalld changes.\n")

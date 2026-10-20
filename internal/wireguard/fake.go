@@ -89,6 +89,8 @@ func (f *Fake) Load(_ context.Context) (State, error) {
 	defer f.mu.Unlock()
 	state := f.state
 	state.Devices = append([]Device(nil), f.state.Devices...)
+	state.Kernel.DropIns = append([]string(nil), f.state.Kernel.DropIns...)
+	state.Kernel.Files = append([]SysctlFile(nil), f.state.Kernel.Files...)
 	state.Firewall = ParseIptablesRules(strings.Join(f.firewall, "\n"))
 	state.Input, _ = ParseIptablesInput(strings.Join(f.firewall, "\n")) // the demo always reads
 	state.annotateFirewall()
@@ -124,6 +126,9 @@ func (f *Fake) apply(cmd runner.Command) (string, error) {
 			Endpoint:        tokenValue(argv, "endpoint"),
 			Keepalive:       atoiOr0(tokenValue(argv, "persistent-keepalive")),
 		})
+	case len(argv) == 3 && argv[0] == "sh" && argv[1] == "-c" && isForwardingStep(cmd):
+		iface, enable, _ := ForwardingStep(cmd)
+		return f.setForwarding(iface, enable)
 	case len(argv) == 3 && argv[0] == "sh" && argv[1] == "-c" && strings.Contains(argv[2], "wg genkey"):
 		// The keygen shell: the demo "writes" the private key nowhere and
 		// answers with the invented public key, exactly the value the real
@@ -325,6 +330,43 @@ func (f *Fake) saveConfig(iface string) (string, error) {
 	return "", fmt.Errorf("no such interface: %s", iface)
 }
 
+func isForwardingStep(cmd runner.Command) bool {
+	_, _, ok := ForwardingStep(cmd)
+	return ok
+}
+
+// setForwarding applies the forwarding step: the drop-in appears (and the
+// kernel forwards) or the drop-in goes (and the kernel, as on a real host,
+// keeps forwarding until the next boot).
+func (f *Fake) setForwarding(iface string, enable bool) (string, error) {
+	k := &f.state.Kernel
+	path := ForwardDropInPath(iface)
+	var files []SysctlFile
+	for _, file := range k.Files {
+		if file.Path != path {
+			files = append(files, file)
+		}
+	}
+	var dropIns []string
+	for _, name := range k.DropIns {
+		if name != iface {
+			dropIns = append(dropIns, name)
+		}
+	}
+	out := ""
+	if enable {
+		files = append(files, SysctlFile{Path: path, Content: ForwardDropIn(iface)})
+		dropIns = append(dropIns, iface)
+		k.Forward = "1"
+		out = ForwardSysctl + " = 1"
+	} else if !k.HasDropIn(iface) {
+		return "", fmt.Errorf("sh: 1: cannot open %s: No such file", path)
+	}
+	k.Files, k.DropIns = files, dropIns
+	k.ForwardAtBoot, k.ForwardAtBootFrom = BootSysctl(k.Files, ForwardSysctl)
+	return out, nil
+}
+
 // writeConf applies the install that creates a new interface's conf: the demo
 // grows a device, down and peerless, keyed with the invented public key the
 // keygen step answered.
@@ -370,6 +412,10 @@ func demoState() State {
 			{Dst: "192.0.2.0/24", Dev: "wg0", Scope: "link"},
 			{Dst: "203.0.113.0/24", Dev: "docker0", Scope: "link", Flags: []string{"linkdown"}},
 		},
+		// The demo kernel forwards, from wg0's own drop-in.
+		Kernel: Kernel{Forward: "1", ForwardAtBoot: "1", ForwardAtBootFrom: ForwardDropInPath("wg0"),
+			DropIns: []string{"wg0"},
+			Files:   []SysctlFile{{Path: ForwardDropInPath("wg0"), Content: ForwardDropIn("wg0")}}},
 		WGAvailable: true,
 		Devices: []Device{{
 			Name:          "wg0",

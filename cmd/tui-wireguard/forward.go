@@ -116,17 +116,17 @@ func forwardExplanation(name string, f wireguard.ForwardSpec) string {
 			"It forwards from the peers' network (ingress ANY, matched by source) to zone " +
 			f.EgressZone + " (" + f.Egress + "'s zone) and masquerades it there; the return " +
 			"path is firewalld's own established/related accept. " + bindText(name, f) +
-			"PostUp also turns on " +
-			"net.ipv4.ip_forward (left on at down). Policies exist only in firewalld's " +
+			"The kernel's forwarding switch is the next step, not a hook. " +
+			"Policies exist only in firewalld's " +
 			"permanent configuration, so PostUp and PostDown end in firewall-cmd --reload, " +
 			"which also drops any runtime-only firewalld change made without --permanent. " +
 			"PostDown deletes the policy, and its rules with it."
 	}
-	return "Forwarding server for " + to + " through " + f.Egress + ". PostUp turns on " +
-		"net.ipv4.ip_forward (left on at down: something else may rely on it), inserts FORWARD " +
+	return "Forwarding server for " + to + " through " + f.Egress + ". PostUp inserts FORWARD " +
 		"rules with -I — a FORWARD chain that ends in REJECT would never reach an appended " +
 		"rule — accepts the return path by connection tracking only, and masquerades the " +
-		"peers behind " + f.Egress + ". PostDown removes the rules."
+		"peers behind " + f.Egress + ". PostDown removes the rules. The kernel's forwarding " +
+		"switch is the next step, not a hook."
 }
 
 // bindText explains the zone binding of the WireGuard interface, when PostUp
@@ -159,13 +159,109 @@ func (a *app) needsPortStep() bool {
 	return a.portVerdictFor(port) != wireguard.VerdictAccept
 }
 
-// wizardSteps is how many confirms the wizard takes: keygen, conf, the port
-// when it is not open yet, and the optional up.
+// wizardSteps is how many confirms the wizard takes: keygen, conf, a
+// forwarding server's kernel switch, the port when it is not open yet, and
+// the optional up.
 func (a *app) wizardSteps() int {
+	n := 3
+	if a.draft.forward != nil {
+		n++
+	}
 	if a.needsPortStep() {
+		n++
+	}
+	return n
+}
+
+// portStep is the number of the listen-port step: after the conf, and after
+// the kernel switch of a forwarding server.
+func (a *app) portStep() int {
+	if a.draft.forward != nil {
 		return 4
 	}
 	return 3
+}
+
+// confirmForwarding is a forwarding server's third step: the kernel switch,
+// set by the tool itself rather than by a wg-quick hook (issue #33).
+func (a *app) confirmForwarding(name string, port int) tea.Cmd {
+	enable, err := wireguard.BuildEnableForwarding(name)
+	body := fmt.Sprintf("Step 3 of %d — turn on forwarding in the kernel for %s. ", a.wizardSteps(), name) +
+		forwardingBody(name, a.state.Kernel) +
+		"\n\nEsc skips it and leaves " + name + " down; F on the interfaces screen offers it again."
+	cmd := a.openConfirmWith(body, enable, err)
+	if a.mode == modeConfirm {
+		a.after = func(string) tea.Cmd { return a.afterForwarding(name, port) }
+	}
+	return cmd
+}
+
+// forwardingBody explains the kernel-switch step: why it is not a hook, what
+// the drop-in says, and what the switch is now and at boot.
+func forwardingBody(name string, k wireguard.Kernel) string {
+	path := wireguard.ForwardDropInPath(name)
+	lines := []string{
+		"Its rules forward nothing while " + wireguard.ForwardSysctl + " is 0, and a wg-quick hook " +
+			"cannot be trusted to set it: Ubuntu 26.04's AppArmor profile for wg-quick denies it, " +
+			"and wg-quick up still reports success. So it is set here, outside wg-quick: " + path +
+			" turns it on at every boot (systemd-sysctl), and sysctl -w turns it on now. It is not " +
+			"turned off when " + name + " goes down: something else on this host may rely on it.",
+		"",
+		"Now: " + k.ForwardWord() + ". At boot: " + bootText(k.ForwardAtBoot, k.ForwardAtBootFrom) + ".",
+	}
+	if k.ForwardAtBoot == "1" && k.ForwardAtBootFrom != path {
+		lines = append(lines, k.ForwardAtBootFrom+" already turns it on; this drop-in makes "+name+
+			" independent of that file, and neither is changed when the other goes.")
+	}
+	lines = append(lines, "", path+" (mode 644, via stdin):", wireguard.ForwardDropIn(name))
+	return strings.Join(lines, "\n")
+}
+
+// bootText says what a sysctl is at boot and which file says so.
+func bootText(value, from string) string {
+	if value == "" {
+		return "off (no sysctl.d file sets it; the kernel's default is 0)"
+	}
+	word := "on"
+	if value == "0" {
+		word = "off"
+	}
+	return word + ", from " + from
+}
+
+// offerForwarding is F on the interfaces screen: the kernel switch of the
+// selected forwarding server. Without the tool's drop-in, or with the kernel
+// not forwarding, it offers the same step as the wizard; with the drop-in in
+// place and the kernel forwarding, it offers to remove the drop-in.
+func (a *app) offerForwarding(dev wireguard.Device) tea.Cmd {
+	k := a.state.Kernel
+	has := k.HasDropIn(dev.Name)
+	switch {
+	case has && !k.ForwardOff():
+		remove, err := wireguard.BuildDisableForwarding(dev.Name)
+		value, from := k.ForwardAtBootWithout(dev.Name)
+		body := "Remove " + wireguard.ForwardDropInPath(dev.Name) + ", which tui-wireguard wrote for " +
+			dev.Name + ". It is deleted only if its first line is the tool's own; a file someone " +
+			"else put at that path is left in place.\n\nThe kernel keeps forwarding until the next " +
+			"boot: something else on this host may rely on it. After a reboot " +
+			wireguard.ForwardSysctl + " is " + bootText(value, from) + "."
+		if dev.Forwarding && value != "1" {
+			body += "\n\n" + dev.Name + " still has forwarding rules: after that reboot they forward nothing."
+		}
+		return a.openConfirmWith(body, remove, err)
+	case has || dev.Forwarding:
+		enable, err := wireguard.BuildEnableForwarding(dev.Name)
+		body := "Turn on forwarding in the kernel for " + dev.Name + ". "
+		if k.ForwardOff() && dev.Forwarding {
+			body = dev.Name + " has forwarding rules and the kernel does not forward (" +
+				wireguard.ForwardSysctl + " = 0), so they pass nothing. A conf written by an earlier " +
+				"tui-wireguard turns it on with a PostUp sysctl hook, which AppArmor denies on Ubuntu 26.04. "
+		}
+		return a.openConfirmWith(body+forwardingBody(dev.Name, k), enable, err)
+	}
+	a.setStatusf(ui.StatusWarn, "%s is not a forwarding server: it has no forwarding rules, "+
+		"so the kernel switch is not its to manage", dev.Name)
+	return nil
 }
 
 // confirmOpenPort offers the runtime rule that opens the listen port, and
@@ -180,8 +276,8 @@ func (a *app) confirmOpenPort(name string, port int) tea.Cmd {
 		// runtime-only port the moment it comes up.
 		open, err = wireguard.BuildOpenListenPortPermanent(port)
 	}
-	lines := []string{fmt.Sprintf("Step 3 of %d (optional) — open udp/%d, or no handshake "+
-		"reaches %s.", a.wizardSteps(), port, name)}
+	lines := []string{fmt.Sprintf("Step %d of %d (optional) — open udp/%d, or no handshake "+
+		"reaches %s.", a.portStep(), a.wizardSteps(), port, name)}
 	switch {
 	case a.portVerdictFor(port) == wireguard.VerdictUnknown && input.Source == "":
 		lines = append(lines, "The host firewall could not be read ("+
@@ -240,6 +336,18 @@ func (a *app) confirmOpenPort(name string, port int) tea.Cmd {
 		a.after = func(string) tea.Cmd { return a.confirmOfferUp(name) }
 	}
 	return cmd
+}
+
+// forwardText says whether the host forwards for an interface: yes, or
+// ip_fwd=0 when its rules are in place and the kernel does not forward.
+func forwardText(d wireguard.Device, k wireguard.Kernel) string {
+	switch {
+	case d.Forwarding && k.ForwardOff():
+		return "ip_fwd=0"
+	case d.Forwarding:
+		return "yes"
+	}
+	return "-"
 }
 
 // firewallText renders an interface's listen-port verdict for the table.

@@ -183,6 +183,36 @@ elif command -v iptables >/dev/null 2>&1 && sudo -n iptables -S >/dev/null 2>&1;
   fi
 fi
 
+# The kernel's forwarding switch (issue #33). Forwarding rules pass nothing
+# while net.ipv4.ip_forward is 0, which is what a forwarding server's conf
+# hook left behind on Ubuntu 26.04, where AppArmor denies it. The switch is
+# world-readable, so this needs no sudo.
+fwd_now=on
+[[ $(cat /proc/sys/net/ipv4/ip_forward) == 0 ]] && fwd_now=off
+check "check reads the kernel's forwarding switch ($fwd_now)" \
+  "$bin --check" \
+  "\"kernelForwarding\": \"$fwd_now\""
+check "check --demo says the demo kernel forwards" \
+  "$bin --demo --check" \
+  '"kernelForwarding": "on"'
+if command -v wg >/dev/null 2>&1 && sudo -n wg show interfaces >/dev/null 2>&1; then
+  for iface in $(sudo -n wg show interfaces); do
+    if [[ -f /etc/sysctl.d/90-tui-wireguard-$iface-forward.conf ]]; then
+      check "check sees the forwarding drop-in of $iface" \
+        "sudo -n $bin --check | tr -d ' \n' | sed 's/\"name\":/\n&/g' | grep '^\"name\":\"$iface\"' | grep -o '\"forwardingDropIn\":true' || true" \
+        'true'
+    fi
+  done
+  # Every forwarding interface on a kernel that does not forward is
+  # reported as a problem, and none is on a kernel that does.
+  forwarders=$(sudo -n "$bin" --check | grep -c '"forwarding": true' || true)
+  want_problems=0
+  [[ $fwd_now == off ]] && want_problems=$forwarders
+  check "check reports forwarding off in the kernel for $want_problems interface(s)" \
+    "sudo -n $bin --check | grep -c 'forwarding off in the kernel' || true" \
+    "^${want_problems}\$"
+fi
+
 # The whole promise, on the real read path: --check goes into public issues,
 # so a URL anywhere in it is a bug.
 check "check carries no URL of this host" \

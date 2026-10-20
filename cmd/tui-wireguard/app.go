@@ -414,6 +414,8 @@ func (a *app) handleActionKey(key string) tea.Cmd {
 		case "w":
 			a.offerSave(dev.Name)
 			return nil
+		case "F":
+			return a.offerForwarding(dev)
 		}
 	case wireguard.ScreenPeers:
 		switch key {
@@ -546,13 +548,23 @@ func (a *app) confirmWriteConf(publicKey string) tea.Cmd {
 	cmd := a.openConfirmWith(body, write, err)
 	if a.mode == modeConfirm {
 		a.after = func(string) tea.Cmd {
-			if a.needsPortStep() {
-				return a.confirmOpenPort(name, port)
+			if a.draft.forward != nil {
+				return a.confirmForwarding(name, port)
 			}
-			return a.confirmOfferUp(name)
+			return a.afterForwarding(name, port)
 		}
 	}
 	return cmd
+}
+
+// afterForwarding is the step after the conf, or after a forwarding server's
+// kernel switch: the listen port when the firewall does not accept it, else
+// the optional up.
+func (a *app) afterForwarding(name string, port int) tea.Cmd {
+	if a.needsPortStep() {
+		return a.confirmOpenPort(name, port)
+	}
+	return a.confirmOfferUp(name)
 }
 
 // confirmOfferUp is the last step, and optional: esc leaves the new interface

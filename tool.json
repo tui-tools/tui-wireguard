@@ -3,7 +3,7 @@
   "name": "tui-wireguard",
   "binary": "tui-wireguard",
   "tagline": "WireGuard interfaces and peers, from the terminal",
-  "description": "WireGuard interfaces and their peers from the terminal, and the host around them.\n\nThe interfaces screen reads `wg show all dump`: each interface's state, listen port and peer count, plus whether the host firewall lets a handshake reach the port (read from tui-firewall, nftables or iptables, so firewalld and ufw are seen as they are) and whether the host forwards for it. The peers screen shows endpoints, handshakes, transfer, allowed IPs and keepalive.\n\nEvery change is previewed as the exact command line and applied only after you confirm it: creating an interface from zero (an endpoint, or a forwarding server with its `ip_forward`, FORWARD and MASQUERADE rules and its listen port opened in INPUT, or a firewalld policy on firewalld), bringing one up or down, adding or removing a peer (optionally with its endpoint, a persistent keepalive and a generated pre-shared key) and saving the runtime config. A private key is never shown, typed, or put on a command line.\n\nThis tool was called tui-vpn up to 0.4.x. The Headscale control plane it used to manage moved to [tui-tailscale](https://tui.tools/tools/tui-tailscale/).\n\nRun it with `--demo` to see every screen with nothing installed.",
+  "description": "WireGuard interfaces and their peers from the terminal, and the host around them.\n\nThe interfaces screen reads `wg show all dump`: each interface's state, listen port and peer count, plus whether the host firewall lets a handshake reach the port (read from tui-firewall, nftables or iptables, so firewalld and ufw are seen as they are) and whether the host forwards for it. The peers screen shows endpoints, handshakes, transfer, allowed IPs and keepalive.\n\nEvery change is previewed as the exact command line and applied only after you confirm it: creating an interface from zero (an endpoint, or a forwarding server with its FORWARD and MASQUERADE rules, `ip_forward` in a sysctl.d drop-in and its listen port opened in INPUT, or a firewalld policy on firewalld), bringing one up or down, adding or removing a peer (optionally with its endpoint, a persistent keepalive and a generated pre-shared key) and saving the runtime config. A private key is never shown, typed, or put on a command line.\n\nThis tool was called tui-vpn up to 0.4.x. The Headscale control plane it used to manage moved to [tui-tailscale](https://tui.tools/tools/tui-tailscale/).\n\nRun it with `--demo` to see every screen with nothing installed.",
   "category": "vpn",
   "homepage": "https://github.com/tui-tools/tui-wireguard",
   "repo": "https://github.com/tui-tools/tui-wireguard",
@@ -39,7 +39,7 @@
     },
     {
       "key": "N",
-      "action": "Create an interface: endpoint or forwarding server (keygen, conf, port, up)"
+      "action": "Create an interface: endpoint or forwarding server (keygen, conf, kernel forwarding, port, up)"
     },
     {
       "key": "u / d",
@@ -52,6 +52,10 @@
     {
       "key": "a / x",
       "action": "Add / remove a peer (add: optional endpoint, keepalive, pre-shared key file)"
+    },
+    {
+      "key": "F",
+      "action": "Turn on a forwarding server's kernel forwarding (sysctl.d drop-in), or remove the drop-in"
     },
     {
       "key": "r / ctrl+r",

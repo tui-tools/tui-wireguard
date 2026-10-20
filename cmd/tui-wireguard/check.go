@@ -48,10 +48,16 @@ type wgSummary struct {
 	// --list-all-policies` and `--list-all-zones`) when it is running, else
 	// iptables (`iptables -S`, the FORWARD chain). ForwardingManager is
 	// firewalld, or ufw when the input read recognised it (issue #30).
-	ForwardingChecked bool           `json:"forwardingChecked"`
-	ForwardingSource  string         `json:"forwardingSource,omitempty"`
-	ForwardingManager string         `json:"forwardingManager,omitempty"`
-	Interfaces        []ifaceSummary `json:"interfaces"`
+	ForwardingChecked bool   `json:"forwardingChecked"`
+	ForwardingSource  string `json:"forwardingSource,omitempty"`
+	ForwardingManager string `json:"forwardingManager,omitempty"`
+	// KernelForwarding is net.ipv4.ip_forward now (on, off, or unknown when
+	// /proc could not be read), and KernelForwardingAtBoot what the sysctl.d
+	// files set it to at boot (off when none sets it). Rules on a kernel
+	// that does not forward pass nothing (issue #33).
+	KernelForwarding       string         `json:"kernelForwarding"`
+	KernelForwardingAtBoot string         `json:"kernelForwardingAtBoot"`
+	Interfaces             []ifaceSummary `json:"interfaces"`
 }
 
 // ifaceSummary is one interface without anything that identifies it on the wire.
@@ -70,8 +76,13 @@ type ifaceSummary struct {
 	// could not be read or its rules could not be judged.
 	ListenPortInput wireguard.Verdict `json:"listenPortInput"`
 	// Forwarding is whether the host forwards traffic in on this interface
-	// (a forwarding server), as forwardingSource answered.
+	// (a forwarding server), as forwardingSource answered: its rules.
 	Forwarding bool `json:"forwarding"`
+	// ForwardingDropIn reports the tool's /etc/sysctl.d drop-in for it.
+	ForwardingDropIn bool `json:"forwardingDropIn,omitempty"`
+	// Problems are failures the other fields only imply, such as forwarding
+	// rules on a kernel that does not forward.
+	Problems []string `json:"problems,omitempty"`
 }
 
 // peerSummary is one peer's health, with no key and no endpoint.
@@ -116,21 +127,24 @@ func summariseWG(state wireguard.State) wgSummary {
 		FirewallChecked: state.Input.Source != "", FirewallSource: state.Input.Source,
 		FirewallManager:   state.Input.Manager,
 		ForwardingChecked: state.ForwardSource() != "", ForwardingSource: state.ForwardSource(),
-		ForwardingManager: state.ForwardManager()}
+		ForwardingManager: state.ForwardManager(),
+		KernelForwarding:  state.Kernel.ForwardWord(), KernelForwardingAtBoot: state.Kernel.ForwardAtBootWord()}
 	for _, dev := range state.Devices {
 		verdict := dev.PortVerdict
 		if verdict == "" {
 			verdict = wireguard.VerdictUnknown
 		}
 		iface := ifaceSummary{
-			Name:            dev.Name,
-			Up:              dev.Up,
-			ListenPort:      dev.ListenPort,
-			HasPrivateKey:   dev.HasPrivateKey,
-			ConfigOnly:      dev.ConfigOnly,
-			PeerCount:       len(dev.Peers),
-			ListenPortInput: verdict,
-			Forwarding:      dev.Forwarding,
+			Name:             dev.Name,
+			Up:               dev.Up,
+			ListenPort:       dev.ListenPort,
+			HasPrivateKey:    dev.HasPrivateKey,
+			ConfigOnly:       dev.ConfigOnly,
+			PeerCount:        len(dev.Peers),
+			ListenPortInput:  verdict,
+			Forwarding:       dev.Forwarding,
+			ForwardingDropIn: state.Kernel.HasDropIn(dev.Name),
+			Problems:         state.Problems(dev),
 		}
 		for _, peer := range dev.Peers {
 			iface.Peers = append(iface.Peers, peerSummary{

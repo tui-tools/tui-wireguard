@@ -318,10 +318,7 @@ func firewalldForwardingRules(iface, peers, egressZone, bindZone string, dests [
 		return nil, nil, fmt.Errorf("not a valid firewalld zone for %s: %q", iface, bindZone)
 	}
 	fc := "firewall-cmd --permanent"
-	up = []string{
-		"sysctl -w net.ipv4.ip_forward=1",
-		fc + " --delete-policy=" + policy + " -q 2>/dev/null || true",
-	}
+	up = []string{fc + " --delete-policy=" + policy + " -q 2>/dev/null || true"}
 	if bindZone != "" {
 		up = append(up, fc+" --zone="+bindZone+" --add-interface="+iface)
 	}
