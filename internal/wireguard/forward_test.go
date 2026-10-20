@@ -105,8 +105,9 @@ func TestForwardingRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// No sysctl hook: Ubuntu 26.04's AppArmor profile for wg-quick denies
+	// it, and the tool sets the switch in its own step (issue #33).
 	wantUp := []string{
-		"sysctl -w net.ipv4.ip_forward=1",
 		"iptables -I FORWARD -i %i -o ens3 -d 198.51.100.0/24 -j ACCEPT",
 		"iptables -I FORWARD -i ens3 -o %i -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT",
 		"iptables -t nat -I POSTROUTING -s 192.0.2.0/24 -o ens3 -d 198.51.100.0/24 -j MASQUERADE",

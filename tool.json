@@ -39,7 +39,7 @@
     },
     {
       "key": "N",
-      "action": "Create an interface: endpoint or forwarding server (keygen, conf, port, up)"
+      "action": "Create an interface: endpoint or forwarding server (keygen, conf, ip_forward, port, up)"
     },
     {
       "key": "u / d",
@@ -47,11 +47,15 @@
     },
     {
       "key": "w",
-      "action": "Save the interface's runtime config (wg-quick save)"
+      "action": "Save the interface's runtime config (wg-quick save, keys kept out of the conf)"
     },
     {
       "key": "a / x",
       "action": "Add / remove a peer (add: optional endpoint, keepalive, pre-shared key file)"
+    },
+    {
+      "key": "F",
+      "action": "A forwarding server's ip_forward: write its sysctl.d drop-in, or remove it"
     },
     {
       "key": "r / ctrl+r",

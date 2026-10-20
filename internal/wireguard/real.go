@@ -220,6 +220,7 @@ func (r *Real) loadHostNet(ctx context.Context, state *State) {
 	state.Firewalld = r.readFirewalld(ctx)
 	state.TUIFirewall = runner.Available("tui-firewall", TUIFirewallSearchPaths...)
 	state.Input = r.readInput(ctx, state.TUIFirewall, iptablesOut, state.Firewall.Error)
+	state.Kernel = readKernel()
 	state.annotateFirewall()
 }
 

@@ -109,8 +109,15 @@ func (a *app) header() string {
 		Render(a.theme, a.width)
 }
 
-// defaultStatus is the hint shown when there is no message to report.
+// defaultStatus is the hint shown when there is no message to report. A
+// forwarding server on a kernel that does not forward is said here, since it
+// is why nothing passes and the table alone only shows ip_fwd=0.
 func (a *app) defaultStatus() string {
+	for _, d := range a.state.Devices {
+		if problems := a.state.Problems(d); len(problems) > 0 {
+			return d.Name + ": forwarding off in the kernel  ·  F turns it on"
+		}
+	}
 	return strconv.Itoa(a.rowCount()) + " rows  ·  ? for help"
 }
 
@@ -175,7 +182,7 @@ func (a *app) statusTable() ([]ui.Column, [][]string, []*lipgloss.Style) {
 	for _, d := range a.state.Devices {
 		rows = append(rows, []string{
 			d.Name, upState(d.Up), portOf(d.ListenPort), firewallText(d),
-			forwardText(d), strconv.Itoa(len(d.Peers)), shortKey(d.PublicKey),
+			forwardText(d, a.state.Kernel), strconv.Itoa(len(d.Peers)), shortKey(d.PublicKey),
 		})
 		styles = append(styles, a.stateStyle(d.Up))
 	}
@@ -237,14 +244,6 @@ func (a *app) handshakeStyle(now, t time.Time) *lipgloss.Style {
 }
 
 // --- small formatters ---
-
-// forwardText says whether the host forwards for an interface.
-func forwardText(d wireguard.Device) string {
-	if d.Forwarding {
-		return "yes"
-	}
-	return "-"
-}
 
 func upState(up bool) string {
 	if up {
@@ -349,7 +348,7 @@ func (a *app) shortHelpKeys() []ui.KeyHint {
 		hints = append(hints,
 			ui.KeyHint{Key: "N", Desc: "new iface"},
 			ui.KeyHint{Key: "u", Desc: "up"}, ui.KeyHint{Key: "d", Desc: "down"},
-			ui.KeyHint{Key: "w", Desc: "save"})
+			ui.KeyHint{Key: "w", Desc: "save"}, ui.KeyHint{Key: "F", Desc: "forwarding"})
 	case wireguard.ScreenPeers:
 		hints = append(hints,
 			ui.KeyHint{Key: "a", Desc: "add"}, ui.KeyHint{Key: "x", Desc: "remove"},
@@ -373,11 +372,14 @@ func helpKeys() []ui.KeyHint {
 		{Key: "r / ctrl+r", Desc: "reload"},
 		{Key: "", Desc: ""},
 		{Key: "N", Desc: "create a new interface from zero (keygen, conf, up); as"},
-		{Key: "", Desc: "a forwarding server: ip_forward, FORWARD -I, MASQUERADE"},
+		{Key: "", Desc: "a forwarding server: FORWARD -I, MASQUERADE, ip_forward"},
 		{Key: "", Desc: "(a firewalld policy on firewalld), and the listen port"},
 		{Key: "", Desc: "opened when the host firewall does not accept it"},
 		{Key: "u / d", Desc: "bring the selected interface up / down"},
-		{Key: "w", Desc: "save the interface's runtime config (wg-quick save)"},
+		{Key: "F", Desc: "a forwarding server's kernel switch: write or remove its"},
+		{Key: "", Desc: "/etc/sysctl.d drop-in (net.ipv4.ip_forward, set now too)"},
+		{Key: "w", Desc: "save the interface's runtime config (wg-quick save, then"},
+		{Key: "", Desc: "the keys back out of the conf where their files load them)"},
 		{Key: "a / x", Desc: "add / remove a peer on the interface (add: end with \"psk\""},
 		{Key: "", Desc: "to also generate a pre-shared key file; then an optional"},
 		{Key: "", Desc: "endpoint host:port and persistent keepalive, 25 behind NAT)"},

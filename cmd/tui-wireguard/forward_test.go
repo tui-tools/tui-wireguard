@@ -80,13 +80,16 @@ func TestCreateForwardingServer(t *testing.T) {
 	}
 	a = enter(t, a)
 
-	if !strings.Contains(a.confirm.Body, "Step 1 of 4") {
-		t.Errorf("the port step is not counted:\n%s", a.confirm.Body)
+	if !strings.Contains(a.confirm.Body, "Step 1 of 5") {
+		t.Errorf("the forwarding and port steps are not counted:\n%s", a.confirm.Body)
 	}
 	a = confirmAndRun(t, a) // keygen
 	body := a.confirm.Body
+	if strings.Contains(body, "sysctl") && strings.Contains(body, "PostUp = sysctl") {
+		t.Errorf("the conf still turns forwarding on in a hook (issue #33):\n%s", body)
+	}
 	for _, want := range []string{
-		"PostUp = sysctl -w net.ipv4.ip_forward=1",
+		"# net.ipv4.ip_forward is set by /etc/sysctl.d/90-tui-wireguard-wg9-forward.conf",
 		"PostUp = iptables -I FORWARD -i %i -o eth0 -d 198.51.100.0/24 -j ACCEPT",
 		"PostUp = iptables -I FORWARD -i eth0 -o %i -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT",
 		"PostUp = iptables -t nat -I POSTROUTING -s 192.0.2.128/25 -o eth0 -d 198.51.100.0/24 -j MASQUERADE",
@@ -99,10 +102,23 @@ func TestCreateForwardingServer(t *testing.T) {
 	}
 	a = confirmAndRun(t, a) // conf
 
+	// The kernel switch, outside wg-quick (issue #33).
+	if a.confirm.Command != "sh -c 'install -D -m 644 /dev/stdin "+
+		"/etc/sysctl.d/90-tui-wireguard-wg9-forward.conf && sysctl -w net.ipv4.ip_forward=1'" {
+		t.Fatalf("forwarding step preview = %q", a.confirm.Command)
+	}
+	for _, want := range []string{"Step 3 of 5", "AppArmor", "net.ipv4.ip_forward = 1",
+		"# Written by tui-wireguard for the forwarding server wg9", "Now: on"} {
+		if !strings.Contains(a.confirm.Body, want) {
+			t.Errorf("the forwarding step is missing %q:\n%s", want, a.confirm.Body)
+		}
+	}
+	a = confirmAndRun(t, a) // forwarding
+
 	if a.confirm.Command != "iptables -I INPUT -p udp --dport 51821 -j ACCEPT" {
 		t.Fatalf("port step preview = %q", a.confirm.Command)
 	}
-	for _, want := range []string{"Step 3 of 4", "NOT persisted", "REJECT", "Oracle Cloud",
+	for _, want := range []string{"Step 4 of 5", "NOT persisted", "REJECT", "Oracle Cloud",
 		"netfilter-persistent"} {
 		if !strings.Contains(a.confirm.Body, want) {
 			t.Errorf("the port step is missing %q:\n%s", want, a.confirm.Body)
@@ -110,7 +126,7 @@ func TestCreateForwardingServer(t *testing.T) {
 	}
 	a = confirmAndRun(t, a) // port
 	if !strings.Contains(a.confirm.Command, "wg-quick up wg9") ||
-		!strings.Contains(a.confirm.Body, "Step 4 of 4") {
+		!strings.Contains(a.confirm.Body, "Step 5 of 5") {
 		t.Fatalf("up step: %q\n%s", a.confirm.Command, a.confirm.Body)
 	}
 	a = confirmAndRun(t, a)
@@ -119,6 +135,9 @@ func TestCreateForwardingServer(t *testing.T) {
 	dev, ok := state.Device("wg9")
 	if !ok || !dev.Forwarding || dev.PortVerdict != wireguard.VerdictAccept {
 		t.Errorf("wg9 after the wizard: %+v", dev)
+	}
+	if !state.Kernel.HasDropIn("wg9") {
+		t.Errorf("wg9 has no drop-in after the wizard: %+v", state.Kernel)
 	}
 	a.state = state
 	if view := a.View(); !strings.Contains(view, "FORWARD") || !strings.Contains(view, "UDP IN") {
@@ -134,8 +153,9 @@ func TestPortStepNamesTUIFirewall(t *testing.T) {
 	a = startForwardingServer(t, a, "51821")
 	a = enter(t, a)
 	a = enter(t, a)
-	a = confirmAndRun(t, a)
-	a = confirmAndRun(t, a)
+	a = confirmAndRun(t, a) // keygen
+	a = confirmAndRun(t, a) // conf
+	a = confirmAndRun(t, a) // forwarding
 	if !strings.Contains(a.confirm.Body, "tui-firewall is installed") {
 		t.Errorf("the port step does not name tui-firewall:\n%s", a.confirm.Body)
 	}
@@ -223,13 +243,15 @@ func TestPortStepOnFirewalld(t *testing.T) {
 	a = startForwardingServer(t, a, "51821")
 	a = enter(t, a)
 	a = enter(t, a)
-	if !strings.Contains(a.confirm.Body, "Step 1 of 4") {
+	if !strings.Contains(a.confirm.Body, "Step 1 of 5") {
 		t.Fatalf("the port step was not counted:\n%s", a.confirm.Body)
 	}
 	a.state.Input = firewalldInput(t, "nft-firewalld-closed.json")
-	a = confirmAndRun(t, a)
+	a = confirmAndRun(t, a) // keygen
 	a.state.Input = firewalldInput(t, "nft-firewalld-closed.json")
-	a = confirmAndRun(t, a)
+	a = confirmAndRun(t, a) // conf
+	a.state.Input = firewalldInput(t, "nft-firewalld-closed.json")
+	a = confirmAndRun(t, a) // forwarding
 	if !strings.Contains(a.confirm.Command, "firewall-cmd --add-port=51821/udp") {
 		t.Errorf("port step preview = %q, want firewall-cmd", a.confirm.Command)
 	}
@@ -308,6 +330,12 @@ func TestForwardingServerOnFirewalld(t *testing.T) {
 	a.state.Firewalld = unboundEgress(runningFirewalld(t))
 	a.state.Input = firewalldInput(t, "nft-firewalld-closed.json")
 	a = confirmAndRun(t, a) // write the conf
+	if !strings.Contains(a.confirm.Command, "sysctl -w net.ipv4.ip_forward=1") {
+		t.Fatalf("the forwarding step is not next on firewalld: %q", a.confirm.Command)
+	}
+	a.state.Firewalld = unboundEgress(runningFirewalld(t))
+	a.state.Input = firewalldInput(t, "nft-firewalld-closed.json")
+	a = confirmAndRun(t, a) // the kernel switch
 	if !strings.Contains(a.confirm.Command, "firewall-cmd --permanent --add-port=51821/udp") {
 		t.Errorf("port step preview = %q, want the permanent firewall-cmd", a.confirm.Command)
 	}

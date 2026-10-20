@@ -35,7 +35,7 @@ tui-wireguard --demo
 
 ![The interfaces screen: state, listen port, whether the host firewall opens the port and forwards for the interface, and peer counts](docs/screenshots/tui-wireguard-status.png)
 
-- **interfaces**: the WireGuard interfaces on this host, with peer counts and state, whether the host firewall lets a handshake reach the listen port, and whether the host forwards for the interface. `N` creates one from zero (an endpoint, or a forwarding server with its rules), `u` / `d` bring one up or down, `w` saves its runtime config. An interface that is down has no link and no line in `wg show`, so it is listed from its file in `/etc/wireguard` instead, and `u` brings it back.
+- **interfaces**: the WireGuard interfaces on this host, with peer counts and state, whether the host firewall lets a handshake reach the listen port, and whether the host forwards for the interface. `N` creates one from zero (an endpoint, or a forwarding server with its rules), `u` / `d` bring one up or down, `w` saves its runtime config, `F` turns the kernel's forwarding on (or its drop-in off) for a forwarding server. An interface that is down has no link and no line in `wg show`, so it is listed from its file in `/etc/wireguard` instead, and `u` brings it back.
 - **peers**: the peers of the interface selected on the first screen: endpoint, handshake age, transfer, allowed IPs, keepalive. `a` / `x` add or remove a peer (end the add line with `psk` to also generate a pre-shared key file; an optional endpoint and persistent keepalive are asked next); `w` saves.
 
 ![The peers screen: endpoints, handshake age, transfer and allowed IPs for the selected interface](docs/screenshots/tui-wireguard-peers.png)
@@ -55,9 +55,10 @@ Beyond up/down and peer add/remove, tui-wireguard can bootstrap and maintain a W
 On an empty host, `N` on the interfaces screen walks a short wizard (name, address in CIDR form, listen port, role) and then previews each command in turn.
 
 1. **Keygen.** One root shell: `sh -c 'umask 077 && wg genkey | tee /etc/wireguard/<if>.key | wg pubkey'`. The private key is written straight into a root-only file inside that shell and never leaves it; only the public key comes back, shown so you can hand it to peers.
-2. **Write the conf.** The file is fed to `install -m 600 /dev/stdin /etc/wireguard/<if>.conf` on stdin, so its content never rides an argv. The conf deliberately contains no private key: it carries `PostUp = wg set %i private-key /etc/wireguard/<if>.key`, so wg-quick loads the key from its file at up time. That is why the confirm dialog can show you the whole file.
-3. **Open the listen port**, only when the host firewall does not already accept it (see below).
-4. **Bring it up**, the usual `wg-quick up`, optional; esc leaves the interface created but down.
+2. **Write the conf.** The file is fed to `install -m 600 /dev/stdin /etc/wireguard/<if>.conf` on stdin, so its content never rides an argv. The conf deliberately contains no private key: it carries `PostUp = wg set %i private-key /etc/wireguard/<if>.key`, so wg-quick loads the key from its file at up time. That is why the confirm dialog can show you the whole file, and it stays that way after a save (`w`, below).
+3. **Turn on forwarding in the kernel**, for a forwarding server only (see below).
+4. **Open the listen port**, only when the host firewall does not already accept it (see below).
+5. **Bring it up**, the usual `wg-quick up`, optional; esc leaves the interface created but down.
 
 ### A forwarding server (`N`, role step)
 
@@ -68,7 +69,6 @@ After the port, `N` asks for the interface's role. An *endpoint* is reached by i
 - **The rules**, written into the interface's own conf as `PostUp`/`PostDown`, so they come and go with the interface, and shown whole in the confirm dialog before the file is written:
 
 ```ini
-PostUp = sysctl -w net.ipv4.ip_forward=1
 PostUp = iptables -I FORWARD -i %i -o eth0 -d 10.0.0.0/16 -j ACCEPT
 PostUp = iptables -I FORWARD -i eth0 -o %i -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 PostUp = iptables -t nat -I POSTROUTING -s 10.8.0.0/24 -o eth0 -d 10.0.0.0/16 -j MASQUERADE
@@ -77,12 +77,11 @@ PostDown = iptables -D FORWARD -i eth0 -o %i -m conntrack --ctstate RELATED,ESTA
 PostDown = iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -o eth0 -d 10.0.0.0/16 -j MASQUERADE
 ```
 
-The FORWARD rules are inserted (`-I`): the provider's Ubuntu image ends its FORWARD chain in `-j REJECT`, and a rule appended after it would never match. The return path is accepted by connection tracking only, so nothing behind the host can open a connection towards the peers. `ip_forward` is left on at down, because something else on the host may rely on it.
+The FORWARD rules are inserted (`-I`): the provider's Ubuntu image ends its FORWARD chain in `-j REJECT`, and a rule appended after it would never match. The return path is accepted by connection tracking only, so nothing behind the host can open a connection towards the peers.
 
 **On a firewalld host** (firewalld running when the interface is created) the same intent is written as a firewalld policy instead. firewalld filters forwarded traffic in its own nftables table, and a packet has to be accepted by every table on the forward hook, so an iptables FORWARD accept there forwards nothing. The conf gets one policy owned by the interface, `<interface>-fwd`:
 
 ```ini
-PostUp = sysctl -w net.ipv4.ip_forward=1
 PostUp = firewall-cmd --permanent --delete-policy=wg0-fwd -q 2>/dev/null || true
 PostUp = firewall-cmd --permanent --zone=public --add-interface=wg0
 PostUp = firewall-cmd --permanent --new-policy=wg0-fwd
@@ -104,18 +103,43 @@ PostDown = firewall-cmd --reload
 
 ufw hosts and hosts with a plain nftables or iptables ruleset keep the iptables rules above.
 
-**Known limitation on Ubuntu 26.04.** Its AppArmor profile for `wg-quick` (shipped by the `apparmor` package) lets the hooks' `sysctl` write only `src_valid_mark`, so `PostUp = sysctl -w net.ipv4.ip_forward=1` is denied (an `apparmor="DENIED"` line in the journal) and the interface comes up forwarding nothing while the FORWARD rules are in place. Until the tool turns forwarding on outside `wg-quick`, enable it on such a host with `sysctl -w net.ipv4.ip_forward=1` (and a file in `/etc/sysctl.d/` to keep it).
+**The kernel's forwarding switch.** None of those rules forwards anything while `net.ipv4.ip_forward` is 0, and it is not a hook in the conf: Ubuntu 26.04 confines `wg-quick` with an AppArmor profile (shipped by the `apparmor` package) whose `sysctl` may write only `src_valid_mark`, so a `PostUp = sysctl -w net.ipv4.ip_forward=1` is denied (an `apparmor="DENIED"` line in the journal), `wg-quick up` still reports success, and the interface comes up forwarding nothing. So the wizard sets it itself, outside wg-quick, in one more previewed step after the conf:
+
+```sh
+sh -c 'install -D -m 644 /dev/stdin /etc/sysctl.d/90-tui-wireguard-wg0-forward.conf && sysctl -w net.ipv4.ip_forward=1'
+```
+
+The drop-in, shown whole in the dialog, is one line plus a comment naming the interface; systemd-sysctl applies it at every boot, and `sysctl -w` turns forwarding on now. Each forwarding server has its own file, so removing one never turns off what another still needs, and a file someone else wrote that sets the same switch is left alone (the dialog names it when it already turns forwarding on). Forwarding is not turned off when the interface goes down: something else on the host may rely on it.
+
+`F` on the interfaces screen manages the same switch for the selected forwarding server. When its drop-in is missing or the kernel does not forward, it offers the step above; that is the way out for a server created by an earlier tui-wireguard, whose conf still carries the `PostUp = sysctl` hook (an existing conf is never rewritten: on hosts without that AppArmor profile the hook keeps working, and on Ubuntu 26.04 `F` is what makes it forward). When the drop-in is there and the kernel forwards, `F` offers to remove the drop-in: it deletes the file only when its first line is the tool's own, leaves the running kernel as it is, and says what the switch will be after the next boot, worked out from the other sysctl.d files. The rules are IPv4 only, so the switch is `net.ipv4.ip_forward` alone.
 
 **The listen port.** The same image ends its INPUT chain in `-j REJECT`, so the WireGuard port was closed even with the cloud's own security list open. When the host firewall does not already accept the port (or cannot be read), the wizard offers one more previewed step, `iptables -I INPUT -p udp --dport <port> -j ACCEPT`, and says plainly that it is not persisted: it is gone at the next reboot or firewall reload. On a firewalld host the step is `firewall-cmd --add-port=<port>/udp` instead: firewalld rejects whatever its zones do not allow in its own nftables table, where an iptables rule is never consulted. When [tui-firewall](https://tui.tools/tools/tui-firewall/) is installed, the dialog says to open the port there to keep it; tui-firewall has no non-interactive mode, so tui-wireguard does not drive it. Otherwise it points at the way to keep it for the firewall in charge (`ufw allow`, `firewall-cmd --permanent`, `netfilter-persistent save`).
 
 The interfaces screen shows both answers for every interface, read from the live firewall (as root):
 
 - **UDP IN** is `open`, `closed` or `?` for the listen port. It is read from [tui-firewall](https://tui.tools/tools/tui-firewall/)'s `--check` when tui-firewall is installed (it knows ufw, firewalld, nftables and iptables), else from `nft -j list ruleset`, else from `iptables -S`. Jumps and gotos are followed into user chains (ufw's, docker's, firewalld's zones), rules that only some senders match are ignored, and a firewalld zone counts when it is the default zone or an interface is bound to it. Where the answer cannot be told (a jump into a chain that was not read, a firewalld service whose ports are not known), it is `?`, never `closed`.
-- **FORWARD** is whether the host forwards traffic in on the interface. When firewalld is running it is read from firewalld itself (`firewall-cmd --list-all-policies` and `--list-all-zones`, the running configuration): `yes` when an active policy whose ingress is `ANY` or the interface's zone, and whose egress is not only the host, accepts by its target or by a rich rule (a rich rule scoped to a source address counts only in the interface's own `<interface>-fwd` policy, since the source is what ties it to one interface's peers). Disabled policies (Fedora ships five `gateway-*` policies disabled) do not count. An iptables FORWARD accept on such a host does not count, since firewalld overrules it. Everywhere else it is whether the iptables FORWARD chain accepts traffic in on the interface: where a forwarding server's PostUp puts its rules.
+- **FORWARD** is whether the host forwards traffic in on the interface. When firewalld is running it is read from firewalld itself (`firewall-cmd --list-all-policies` and `--list-all-zones`, the running configuration): `yes` when an active policy whose ingress is `ANY` or the interface's zone, and whose egress is not only the host, accepts by its target or by a rich rule (a rich rule scoped to a source address counts only in the interface's own `<interface>-fwd` policy, since the source is what ties it to one interface's peers). Disabled policies (Fedora ships five `gateway-*` policies disabled) do not count. An iptables FORWARD accept on such a host does not count, since firewalld overrules it. Everywhere else it is whether the iptables FORWARD chain accepts traffic in on the interface: where a forwarding server's PostUp puts its rules. When the rules are there and the kernel does not forward (`/proc/sys/net/ipv4/ip_forward` is 0), the column says `ip_fwd=0` instead of `yes`, and the status line says which interface and that `F` turns forwarding on.
 
 ### Persist peer changes (`w`)
 
-`wg set` mutations are runtime-only. After a successful peer add or remove, tui-wireguard offers `wg-quick save <if>`; `w` on the interfaces or peers screen offers it on demand. The dialog warns before you confirm: the save rewrites the conf from runtime state (hand-written comments are lost, and wg-quick inlines the private key into the root-only, mode 600 file, which is standard wg-quick behaviour).
+`wg set` mutations are runtime-only. After a successful peer add or remove, tui-wireguard offers to save the interface; `w` on the interfaces or peers screen offers it on demand. The save rewrites the conf from runtime state, so hand-written comments and layout are lost, and the dialog says so before you confirm.
+
+The save is one root step, shown whole in the dialog:
+
+```sh
+sh -c 'set -e
+wg-quick save wg0
+umask 077
+awk -v key=/etc/wireguard/wg0.key -v pskprefix=/etc/wireguard/wg0- -v conf=/etc/wireguard/wg0.conf "$1" /etc/wireguard/wg0.conf > /etc/wireguard/wg0.conf.tui-save || { rm -f /etc/wireguard/wg0.conf.tui-save; exit 1; }
+mv /etc/wireguard/wg0.conf.tui-save /etc/wireguard/wg0.conf' tui-wireguard-save '<the awk program>'
+```
+
+`wg-quick save` writes `wg showconf` into the file, and that inlines the private key and every pre-shared key. The awk program after it, in the same step and on the same command line, takes them back out wherever the conf can load them from a file:
+
+- `PrivateKey` is removed when the conf carries `PostUp = wg set %i private-key /etc/wireguard/<if>.key` (the line `N` writes) and that file holds the same key. A conf written by hand keeps it inline, in the root-only (mode 600) file wg-quick wrote, exactly as before.
+- A `PresharedKey` is replaced with `PostUp = wg set %i peer <public-key> preshared-key /etc/wireguard/<if>-<key>.psk` when the file `a … psk` generated for that peer holds the same key. Those lines are the tool's own: each save drops them and writes one per peer whose key is still in its file, so saving twice changes nothing and a removed peer leaves no line behind. A pre-shared key without a matching file stays inline.
+
+The keys are compared inside awk, which reads them from the files: no value is ever an argument, and the program prints only what it did, which is what the status line shows (for example `/etc/wireguard/wg0.conf saved: the private key is loaded from /etc/wireguard/wg0.key, 1 pre-shared key(s) loaded from their files`).
 
 ### Endpoint and keepalive on add-peer
 
@@ -125,7 +149,7 @@ After the key line, `a` asks two optional questions. **Endpoint** is where to re
 wg set wg0 peer <public-key> allowed-ips 10.66.0.1/32 endpoint vpn.example.com:51820 persistent-keepalive 25
 ```
 
-`wg-quick save` persists them with the rest (`Endpoint =` and `PersistentKeepalive =` in the conf), and the peers screen shows them in its ENDPOINT and KEEP columns. A malformed endpoint or an out-of-range keepalive reopens its step with the value as typed and the reason.
+The save (`w`) persists them with the rest (`Endpoint =` and `PersistentKeepalive =` in the conf), and the peers screen shows them in its ENDPOINT and KEEP columns. A malformed endpoint or an out-of-range keepalive reopens its step with the value as typed and the reason.
 
 ### Optional pre-shared key on add-peer
 
@@ -145,7 +169,7 @@ Prints the versions and machine facts a bug report needs and exits: no UI, no pr
 tui-wireguard --check
 ```
 
-Reads the interfaces and the host firewall once and prints a summary as JSON: interface and peer counts, per-peer handshake ages, per-interface `listenPortInput` (what the host firewall does with a handshake: `accept`, `reject`, `drop`, or `unknown` when it could not be read or judged; `firewallChecked` says whether it was read, `firewallSource` what answered, `tui-firewall`, `nftables` or `iptables`, and `firewallManager` whether that is `firewalld` or `ufw`) and `forwarding` (`forwardingChecked` says whether the forwarding side was read, `forwardingSource` what answered, `firewalld` or `iptables`, and `forwardingManager` whether that is `firewalld` or `ufw`), and a `compat` block naming the wireguard-tools version.
+Reads the interfaces and the host firewall once and prints a summary as JSON: interface and peer counts, per-peer handshake ages, per-interface `listenPortInput` (what the host firewall does with a handshake: `accept`, `reject`, `drop`, or `unknown` when it could not be read or judged; `firewallChecked` says whether it was read, `firewallSource` what answered, `tui-firewall`, `nftables` or `iptables`, and `firewallManager` whether that is `firewalld` or `ufw`) and `forwarding` (`forwardingChecked` says whether the forwarding side was read, `forwardingSource` what answered, `firewalld` or `iptables`, and `forwardingManager` whether that is `firewalld` or `ufw`), the kernel's switch (`kernelForwarding`, `on`, `off` or `unknown`, and `kernelForwardingAtBoot`, what the sysctl.d files set at boot), per interface `forwardingDropIn` (the tool's drop-in is there) and `problems` (`forwarding off in the kernel ...` when an interface forwards by its rules and the kernel does not), and a `compat` block naming the wireguard-tools version.
 
 Like `--report`, it carries no key, no endpoint, no URL and no address of the host: it is meant to be pasted into scripts and issues. `test/smoke.sh` asserts that no `://` survives anywhere in the output, and that the interfaces, ports and peer counts agree with `wg show`.
 

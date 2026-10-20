@@ -149,8 +149,9 @@ func (f ForwardSpec) Validate() error {
 // server whose own address is address (the interface's Address=, in CIDR
 // form: the peers' network is its masked prefix).
 //
-//   - net.ipv4.ip_forward is turned on at up and deliberately left on at
-//     down: something else on the host may rely on it.
+//   - net.ipv4.ip_forward is not here: a hook that sets it is denied by
+//     Ubuntu 26.04's AppArmor profile for wg-quick, so the tool sets it in
+//     its own previewed step (BuildEnableForwarding, issue #33).
 //   - FORWARD rules are inserted (-I), never appended: a ruleset whose
 //     FORWARD chain ends in REJECT would never reach an appended rule. The
 //     return path is accepted by connection tracking only, so nothing behind
@@ -196,7 +197,6 @@ func ForwardingRules(iface, address string, spec ForwardSpec) (up, down []string
 		nat = append(nat, "POSTROUTING -s "+peers+" -o "+egress+d+" -j MASQUERADE")
 	}
 
-	up = append(up, "sysctl -w net.ipv4.ip_forward=1")
 	for _, r := range rules {
 		up = append(up, "iptables -I "+r)
 		down = append(down, "iptables -D "+r)

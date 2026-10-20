@@ -128,8 +128,9 @@ func TestFirewalldForwardingRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// No sysctl hook: Ubuntu 26.04's AppArmor profile for wg-quick denies
+	// it, and the tool sets the switch in its own step (issue #33).
 	wantUp := []string{
-		"sysctl -w net.ipv4.ip_forward=1",
 		"firewall-cmd --permanent --delete-policy=wg0-fwd -q 2>/dev/null || true",
 		"firewall-cmd --permanent --new-policy=wg0-fwd",
 		"firewall-cmd --permanent --policy=wg0-fwd --add-ingress-zone=ANY",
@@ -155,7 +156,7 @@ func TestFirewalldForwardingRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(up2) != len(up)+1 || up2[2] != "firewall-cmd --permanent --zone=public --add-interface=wg0" {
+	if len(up2) != len(up)+1 || up2[1] != "firewall-cmd --permanent --zone=public --add-interface=wg0" {
 		t.Errorf("bound up =\n%s", strings.Join(up2, "\n"))
 	}
 	if !reflect.DeepEqual(down2, []string{"firewall-cmd --permanent --delete-policy=wg0-fwd",
