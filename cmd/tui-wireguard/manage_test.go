@@ -161,6 +161,38 @@ func TestSaveOnDemand(t *testing.T) {
 	}
 }
 
+// TestSaveTakesTheSecretsOutInTheSameStep is issue #32 on screen: the save
+// confirm shows the rewrite that follows wg-quick save in the same command,
+// says which secrets it removes, and names the file each pre-shared key is
+// loaded from. Confirming it answers with what stayed inline.
+func TestSaveTakesTheSecretsOutInTheSameStep(t *testing.T) {
+	a := newTestApp(t)
+	a.setScreen(wireguard.ScreenStatus)
+	model, _ := a.Update(key("w"))
+	a = model.(*app)
+	if a.mode != modeConfirm {
+		t.Fatalf("w did not open the save confirm")
+	}
+	for _, want := range []string{"umask 077", "awk -v key=/etc/wireguard/wg0.key",
+		"mv /etc/wireguard/wg0.conf.tui-save /etc/wireguard/wg0.conf", "PrivateKey", "PresharedKey"} {
+		if !strings.Contains(a.confirm.Command, want) {
+			t.Errorf("the save preview lacks %q:\n%s", want, a.confirm.Command)
+		}
+	}
+	// The demo's first peer has a pre-shared key; its file is named.
+	psk := wireguard.PSKPath("wg0", wireguard.DemoPeer1Pub())
+	if !strings.Contains(a.confirm.Body, psk) {
+		t.Errorf("the save body does not name %s:\n%s", psk, a.confirm.Body)
+	}
+	if strings.Contains(a.confirm.Body, "inlines the private key into the file") {
+		t.Errorf("the body still promises an inlined key:\n%s", a.confirm.Body)
+	}
+	a = confirmAndRun(t, a)
+	if !strings.Contains(a.status, "the private key is loaded from /etc/wireguard/wg0.key") {
+		t.Errorf("status after the save = %q", a.status)
+	}
+}
+
 // TestAddPeerWithPSKChainsTwoConfirms: ending the add-peer line with "psk"
 // first previews the genpsk shell, then the add-peer command that passes the
 // FILE PATH, never a key value.

@@ -108,8 +108,12 @@ func (f *Fake) apply(cmd runner.Command) (string, error) {
 		return f.setUp(argv[2], true)
 	case len(argv) == 3 && argv[0] == "wg-quick" && argv[1] == "down":
 		return f.setUp(argv[2], false)
-	case len(argv) == 3 && argv[0] == "wg-quick" && argv[1] == "save":
-		return f.saveConfig(argv[2])
+	case len(argv) == 5 && argv[3] == saveScriptName:
+		iface, ok := SavedInterface(cmd)
+		if !ok {
+			return "", fmt.Errorf("demo backend: not a save shell: %q", cmd.String())
+		}
+		return f.saveConfig(iface)
 	case len(argv) >= 6 && argv[0] == "wg" && argv[1] == "set" && argv[3] == "peer" && argv[5] == "remove":
 		return f.removePeer(argv[2], argv[4])
 	case len(argv) >= 7 && argv[0] == "wg" && argv[1] == "set" && argv[3] == "peer" && argv[5] == "allowed-ips":
@@ -296,13 +300,27 @@ func (f *Fake) addPeer(iface string, peer Peer) (string, error) {
 	return "", fmt.Errorf("no such interface: %s", iface)
 }
 
-// saveConfig persists nothing (the demo has no disk) but answers the way
-// wg-quick would, so the UI flow is exercised end to end.
+// saveConfig persists nothing (the demo has no disk) but answers the way the
+// save shell would, so the UI flow is exercised end to end: the demo's confs
+// are the tool's own, so the key and every pre-shared key are in files.
 func (f *Fake) saveConfig(iface string) (string, error) {
 	for _, d := range f.state.Devices {
-		if d.Name == iface {
-			return "config saved to " + ConfPath(iface), nil
+		if d.Name != iface {
+			continue
 		}
+		// wg-quick save's own trace comes first, as on a real host.
+		msg := "[#] wg showconf " + iface + "\n" +
+			ConfPath(iface) + " saved: the private key is loaded from " + KeyPath(iface)
+		psks := 0
+		for _, p := range d.Peers {
+			if p.HasPresharedKey {
+				psks++
+			}
+		}
+		if psks > 0 {
+			msg += fmt.Sprintf(", %d pre-shared key(s) loaded from their files", psks)
+		}
+		return msg, nil
 	}
 	return "", fmt.Errorf("no such interface: %s", iface)
 }

@@ -238,6 +238,20 @@ if command -v wg-quick >/dev/null 2>&1 && sudo -n test -d /etc/wireguard; then
   done
 fi
 
+# A conf the tool wrote loads its private key from a root-only file, and a
+# save (`w`) keeps it that way (issue #32): wg-quick save inlines the key, and
+# the same step takes it back out. A conf written by hand is not the tool's to
+# judge, so only the ones that carry the tool's key line are checked.
+if command -v wg-quick >/dev/null 2>&1 && sudo -n test -d /etc/wireguard; then
+  for conf in $(sudo -n ls /etc/wireguard 2>/dev/null | sed -n 's/\.conf$//p'); do
+    if sudo -n grep -qxF "PostUp = wg set %i private-key /etc/wireguard/$conf.key" "/etc/wireguard/$conf.conf"; then
+      check "the conf of $conf carries no PrivateKey" \
+        "sudo -n grep -c '^PrivateKey' /etc/wireguard/$conf.conf || true" \
+        '^0$'
+    fi
+  done
+fi
+
 # The configuration of the old name is still read after an upgrade from
 # tui-vpn, and the tool says so. Only checked when the lab left one behind.
 if [[ -r /etc/tui-vpn/config.toml ]]; then

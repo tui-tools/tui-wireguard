@@ -206,7 +206,13 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if summary == "" {
 			summary = "done"
 		}
-		a.setStatusf(ui.StatusOK, "%s: %s", msg.cmd.Description, runner.FirstLine(summary))
+		line := runner.FirstLine(summary)
+		if _, ok := wireguard.SavedInterface(msg.cmd); ok {
+			// wg-quick save traces first; the save's summary, which says
+			// what stayed inline, is the last line.
+			line = lastLine(summary)
+		}
+		a.setStatusf(ui.StatusOK, "%s: %s", msg.cmd.Description, line)
 		a.loading = true
 
 		// A peer change is runtime-only until it is saved: offer the save
@@ -560,19 +566,48 @@ func (a *app) confirmOfferUp(name string) tea.Cmd {
 		up, err)
 }
 
-// offerSave opens the confirm for `wg-quick save`, which is how a runtime
-// peer change survives the next interface restart.
+// offerSave opens the confirm for the save, which is how a runtime peer
+// change survives the next interface restart.
 func (a *app) offerSave(iface string) {
 	cmd, err := wireguard.BuildSaveConfig(iface)
 	if err != nil {
 		a.setStatus(ui.StatusError, err.Error())
 		return
 	}
-	_ = a.openConfirmWith(
-		"This REWRITES "+wireguard.ConfPath(iface)+" from the runtime state: hand-written "+
-			"comments and layout are lost, and wg-quick inlines the private key into the "+
-			"file (root-only, mode 600). Esc keeps the change runtime-only.",
-		cmd, nil)
+	_ = a.openConfirmWith(saveBody(iface, a.state), cmd, nil)
+}
+
+// saveBody explains the save above its command: what wg-quick save does to
+// the conf, and what the second half of the same step takes back out of it.
+func saveBody(iface string, state wireguard.State) string {
+	conf, key := wireguard.ConfPath(iface), wireguard.KeyPath(iface)
+	lines := []string{
+		"This REWRITES " + conf + " from the runtime state with wg-quick save: hand-written " +
+			"comments and layout are lost, and wg-quick writes the private key and every " +
+			"pre-shared key into the file. The awk program below, in the same root step, " +
+			"takes them back out wherever the conf can load them from a file:",
+		"• PrivateKey is removed when the conf loads it with PostUp = wg set %i private-key " +
+			key + " (the line N writes) and that file holds the same key. A conf written by " +
+			"hand keeps it inline, root-only (mode 600), as wg-quick leaves it.",
+		"• a PresharedKey is replaced with a PostUp line that loads it from its file, when " +
+			"the file a … psk generated for that peer holds the same key. Any other stays inline.",
+	}
+	if dev, ok := state.Device(iface); ok {
+		var psks []string
+		for _, p := range dev.Peers {
+			if p.HasPresharedKey {
+				psks = append(psks, "  "+shortKey(p.PublicKey)+" → "+
+					wireguard.PSKPath(iface, p.PublicKey)+" (if it holds the same key)")
+			}
+		}
+		if len(psks) > 0 {
+			lines = append(lines, "Peers with a pre-shared key, and the file each is loaded from:")
+			lines = append(lines, psks...)
+		}
+	}
+	lines = append(lines, "The status line says what stayed inline, if anything. "+
+		"Esc keeps the change runtime-only.")
+	return strings.Join(lines, "\n")
 }
 
 // warnNothing sets a status and returns no command.

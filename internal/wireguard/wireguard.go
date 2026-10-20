@@ -480,9 +480,9 @@ func BuildGenerateInterfaceKey(iface string) (runner.Command, error) {
 // natively, the whole conf is then safe to show in the confirm dialog, and the
 // key never exists anywhere but the file the root shell wrote it to.
 //
-// Note: a later `wg-quick save` rewrites this file from runtime state and does
-// inline the private key (root-only, mode 600) — standard wg-quick behaviour,
-// warned about in that action's confirm dialog.
+// A later save (`w`) rewrites this file from runtime state with `wg-quick
+// save`, which inlines the private key; the same previewed step takes it back
+// out again, because this PostUp line is there to load it (see save.go).
 func InterfaceConf(iface, address string, listenPort int) (string, error) {
 	return InterfaceConfWith(iface, address, listenPort, nil)
 }
@@ -555,21 +555,6 @@ func BuildWriteInterfaceConf(iface, conf string) (runner.Command, error) {
 	}, nil
 }
 
-// BuildSaveConfig assembles `wg-quick save <iface>`, which persists the
-// runtime peers into the configuration file. It rewrites that file wholesale
-// (and inlines the private key, root-only), so it is marked destructive and
-// its dialog warns about it.
-func BuildSaveConfig(iface string) (runner.Command, error) {
-	if !ValidInterface(iface) {
-		return runner.Command{}, fmt.Errorf("not a valid interface name: %q", iface)
-	}
-	return runner.Command{
-		Argv:        []string{"wg-quick", "save", iface},
-		Description: "Save " + iface + " runtime config to " + ConfPath(iface),
-		Destructive: true,
-	}, nil
-}
-
 // PSKPath is the root-only file a generated pre-shared key is written to,
 // named after the interface and a filename-safe slice of the peer's public
 // key so two peers never collide.
@@ -583,7 +568,7 @@ func PSKPath(iface, peerPublicKey string) string {
 			b.WriteRune(r)
 		}
 	}
-	return "/etc/wireguard/" + iface + "-" + b.String() + ".psk"
+	return pskPrefix(iface) + b.String() + ".psk"
 }
 
 // BuildGeneratePSK assembles the root shell that generates a pre-shared key

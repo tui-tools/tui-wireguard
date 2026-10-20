@@ -55,7 +55,7 @@ Beyond up/down and peer add/remove, tui-wireguard can bootstrap and maintain a W
 On an empty host, `N` on the interfaces screen walks a short wizard (name, address in CIDR form, listen port, role) and then previews each command in turn.
 
 1. **Keygen.** One root shell: `sh -c 'umask 077 && wg genkey | tee /etc/wireguard/<if>.key | wg pubkey'`. The private key is written straight into a root-only file inside that shell and never leaves it; only the public key comes back, shown so you can hand it to peers.
-2. **Write the conf.** The file is fed to `install -m 600 /dev/stdin /etc/wireguard/<if>.conf` on stdin, so its content never rides an argv. The conf deliberately contains no private key: it carries `PostUp = wg set %i private-key /etc/wireguard/<if>.key`, so wg-quick loads the key from its file at up time. That is why the confirm dialog can show you the whole file.
+2. **Write the conf.** The file is fed to `install -m 600 /dev/stdin /etc/wireguard/<if>.conf` on stdin, so its content never rides an argv. The conf deliberately contains no private key: it carries `PostUp = wg set %i private-key /etc/wireguard/<if>.key`, so wg-quick loads the key from its file at up time. That is why the confirm dialog can show you the whole file, and it stays that way after a save (`w`, below).
 3. **Open the listen port**, only when the host firewall does not already accept it (see below).
 4. **Bring it up**, the usual `wg-quick up`, optional; esc leaves the interface created but down.
 
@@ -115,7 +115,24 @@ The interfaces screen shows both answers for every interface, read from the live
 
 ### Persist peer changes (`w`)
 
-`wg set` mutations are runtime-only. After a successful peer add or remove, tui-wireguard offers `wg-quick save <if>`; `w` on the interfaces or peers screen offers it on demand. The dialog warns before you confirm: the save rewrites the conf from runtime state (hand-written comments are lost, and wg-quick inlines the private key into the root-only, mode 600 file, which is standard wg-quick behaviour).
+`wg set` mutations are runtime-only. After a successful peer add or remove, tui-wireguard offers to save the interface; `w` on the interfaces or peers screen offers it on demand. The save rewrites the conf from runtime state, so hand-written comments and layout are lost, and the dialog says so before you confirm.
+
+The save is one root step, shown whole in the dialog:
+
+```sh
+sh -c 'set -e
+wg-quick save wg0
+umask 077
+awk -v key=/etc/wireguard/wg0.key -v pskprefix=/etc/wireguard/wg0- -v conf=/etc/wireguard/wg0.conf "$1" /etc/wireguard/wg0.conf > /etc/wireguard/wg0.conf.tui-save || { rm -f /etc/wireguard/wg0.conf.tui-save; exit 1; }
+mv /etc/wireguard/wg0.conf.tui-save /etc/wireguard/wg0.conf' tui-wireguard-save '<the awk program>'
+```
+
+`wg-quick save` writes `wg showconf` into the file, and that inlines the private key and every pre-shared key. The awk program after it, in the same step and on the same command line, takes them back out wherever the conf can load them from a file:
+
+- `PrivateKey` is removed when the conf carries `PostUp = wg set %i private-key /etc/wireguard/<if>.key` (the line `N` writes) and that file holds the same key. A conf written by hand keeps it inline, in the root-only (mode 600) file wg-quick wrote, exactly as before.
+- A `PresharedKey` is replaced with `PostUp = wg set %i peer <public-key> preshared-key /etc/wireguard/<if>-<key>.psk` when the file `a … psk` generated for that peer holds the same key. Those lines are the tool's own: each save drops them and writes one per peer whose key is still in its file, so saving twice changes nothing and a removed peer leaves no line behind. A pre-shared key without a matching file stays inline.
+
+The keys are compared inside awk, which reads them from the files: no value is ever an argument, and the program prints only what it did, which is what the status line shows (for example `/etc/wireguard/wg0.conf saved: the private key is loaded from /etc/wireguard/wg0.key, 1 pre-shared key(s) loaded from their files`).
 
 ### Endpoint and keepalive on add-peer
 
@@ -125,7 +142,7 @@ After the key line, `a` asks two optional questions. **Endpoint** is where to re
 wg set wg0 peer <public-key> allowed-ips 10.66.0.1/32 endpoint vpn.example.com:51820 persistent-keepalive 25
 ```
 
-`wg-quick save` persists them with the rest (`Endpoint =` and `PersistentKeepalive =` in the conf), and the peers screen shows them in its ENDPOINT and KEEP columns. A malformed endpoint or an out-of-range keepalive reopens its step with the value as typed and the reason.
+The save (`w`) persists them with the rest (`Endpoint =` and `PersistentKeepalive =` in the conf), and the peers screen shows them in its ENDPOINT and KEEP columns. A malformed endpoint or an out-of-range keepalive reopens its step with the value as typed and the reason.
 
 ### Optional pre-shared key on add-peer
 
