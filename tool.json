@@ -99,38 +99,38 @@
       "url": "https://github.com/tui-tools/tui-wireguard"
     },
     "pacman": {
-      "available": false,
+      "available": true,
       "package": "tui-wireguard",
       "repo": "tui-tools",
       "requires_repo_setup": true,
       "command": "sudo pacman -S tui-wireguard",
       "url": "https://pkgs.tui.tools/arch",
-      "note": "Available once the first release lands in pkgs.tui.tools."
+      "note": "Upgrades then arrive with the rest of your system updates."
     },
     "apt": {
-      "available": false,
+      "available": true,
       "package": "tui-wireguard",
       "repo": "tui-tools",
       "requires_repo_setup": true,
       "command": "sudo apt install tui-wireguard",
       "url": "https://pkgs.tui.tools/deb",
-      "note": "Available once the first release lands in pkgs.tui.tools."
+      "note": "Upgrades then arrive with the rest of your system updates."
     },
     "dnf": {
-      "available": false,
+      "available": true,
       "package": "tui-wireguard",
       "repo": "tui-tools",
       "requires_repo_setup": true,
       "command": "sudo dnf install tui-wireguard",
       "url": "https://pkgs.tui.tools/rpm",
-      "note": "Available once the first release lands in pkgs.tui.tools."
+      "note": "Upgrades then arrive with the rest of your system updates."
     },
     "binary": {
-      "available": false,
+      "available": true,
       "pattern": "tui-wireguard_{version}_linux_{arch}.tar.gz",
       "command": "curl -fsSL https://github.com/tui-tools/tui-wireguard/releases/download/v{version}/tui-wireguard_{version}_linux_{arch}.tar.gz | tar -xz tui-wireguard\nsudo install -m0755 tui-wireguard /usr/local/bin/tui-wireguard",
       "url": "https://github.com/tui-tools/tui-wireguard/releases",
-      "note": "Available once the first release is tagged."
+      "note": "One static binary. Verify it against checksums.txt from the same release."
     }
   },
   "security": {
