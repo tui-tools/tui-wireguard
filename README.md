@@ -2,7 +2,10 @@
 
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/tui-tools/tui-wireguard/badge)](https://scorecard.dev/viewer/?uri=github.com/tui-tools/tui-wireguard)
 
-> **Beta.** Flags and keys may still move between 0.x releases.
+<!-- stability:start -->
+> **Beta** tools may still change keys, flags or output before their 1.0;
+> stable tools follow semver. Pin versions, and report what breaks.
+<!-- stability:end -->
 
 # tui-wireguard
 
@@ -286,7 +289,7 @@ Available once the first release lands in pkgs.tui.tools.
 ### Any distribution, static binary — coming soon
 
 ```sh
-curl -fsSL https://github.com/tui-tools/tui-wireguard/releases/download/v0.5.2/tui-wireguard_0.5.2_linux_amd64.tar.gz | tar -xz tui-wireguard
+curl -fsSL https://github.com/tui-tools/tui-wireguard/releases/download/v0.6.2/tui-wireguard_0.6.2_linux_amd64.tar.gz | tar -xz tui-wireguard
 sudo install -m0755 tui-wireguard /usr/local/bin/tui-wireguard
 ```
 
