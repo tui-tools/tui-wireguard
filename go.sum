@@ -38,8 +38,8 @@ github.com/muesli/termenv v0.16.0 h1:S5AlUN9dENB57rsbnkPyfdGuWIlkmzJjbFf0Tf5FWUc
 github.com/muesli/termenv v0.16.0/go.mod h1:ZRfOIKPFDYQoDFF4Olj7/QJbW60Ol/kL1pU3VfY/Cnk=
 github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=
 github.com/rivo/uniseg v0.4.7/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=
-github.com/tui-tools/tui-kit v0.4.5 h1:HVEnQwQb7HO/rHsSzGfO+3/RaJD4E6GASlQkesKvl1o=
-github.com/tui-tools/tui-kit v0.4.5/go.mod h1:37JnyJLKt6MQf0ME65tFqjzRa7E+KQKwutzA92o6n1Q=
+github.com/tui-tools/tui-kit v0.4.6 h1:bEfCVeL1XMgnEmXAQqaQfM91/botBYbQMQrQrolLJfc=
+github.com/tui-tools/tui-kit v0.4.6/go.mod h1:37JnyJLKt6MQf0ME65tFqjzRa7E+KQKwutzA92o6n1Q=
 github.com/xo/terminfo v1.2.0 h1:d0ZTOCpuGE0lwSAOs0zcJjwz3jWQyqcRt9XbGJpCOl4=
 github.com/xo/terminfo v1.2.0/go.mod h1:lGzkSo8Fe7IRh/w+Gqz7n5mDog4FVXCj3gy/DYTBqio=
 golang.org/x/sys v0.0.0-20210809222454-d867a43fc93e/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
