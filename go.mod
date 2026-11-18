@@ -1,11 +1,11 @@
 module github.com/tui-tools/tui-wireguard
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/tui-tools/tui-kit v0.4.6
+	github.com/tui-tools/tui-kit v0.5.0
 )
 
 require (

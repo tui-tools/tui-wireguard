@@ -197,10 +197,14 @@ setup by hand — read it, or read the script first with `curl -fsSL
 https://pkgs.tui.tools/install.sh -o install.sh`:
 
 ```sh
-curl -fsSL -o /tmp/tui-tools.asc https://pkgs.tui.tools/pubkey.asc
-sudo pacman-key --add /tmp/tui-tools.asc
-sudo pacman-key --lsign-key \
-  "$(gpg --show-keys --with-colons /tmp/tui-tools.asc | awk -F: '/^fpr:/{print $10; exit}')"
+k="$(mktemp -d)/tui-tools.asc"
+curl -fsSL --proto =https --tlsv1.2 -o "$k" https://pkgs.tui.tools/pubkey.asc
+# Go on only if this prints "key OK": one key, fingerprint 767CFB337B01F32FFC073F3F389120B277E4FB44.
+[ "$(gpg --show-keys --with-colons "$k" \
+  | awk -F: '$1 == "pub" { p = 1; next } p && $1 == "fpr" { print $10; p = 0 }')" \
+  = 767CFB337B01F32FFC073F3F389120B277E4FB44 ] && echo "key OK" || { echo "WRONG KEY: stop here"; rm -f "$k"; }
+sudo pacman-key --add "$k"
+sudo pacman-key --lsign-key 767CFB337B01F32FFC073F3F389120B277E4FB44
 printf '[tui-tools]\nServer = https://pkgs.tui.tools/arch/$arch\n' \
   | sudo tee -a /etc/pacman.conf
 sudo pacman -Sy
@@ -231,9 +235,14 @@ setup by hand — read it, or read the script first with `curl -fsSL
 https://pkgs.tui.tools/install.sh -o install.sh`:
 
 ```sh
+k="$(mktemp -d)/tui-tools.asc"
+curl -fsSL --proto =https --tlsv1.2 -o "$k" https://pkgs.tui.tools/pubkey.asc
+# Go on only if this prints "key OK": one key, fingerprint 767CFB337B01F32FFC073F3F389120B277E4FB44.
+[ "$(gpg --show-keys --with-colons "$k" \
+  | awk -F: '$1 == "pub" { p = 1; next } p && $1 == "fpr" { print $10; p = 0 }')" \
+  = 767CFB337B01F32FFC073F3F389120B277E4FB44 ] && echo "key OK" || { echo "WRONG KEY: stop here"; rm -f "$k"; }
 sudo install -d -m 0755 /etc/apt/keyrings
-curl -fsSL https://pkgs.tui.tools/pubkey.asc \
-  | sudo gpg --dearmor -o /etc/apt/keyrings/tui-tools.gpg
+sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/tui-tools.gpg "$k"
 echo "deb [signed-by=/etc/apt/keyrings/tui-tools.gpg] https://pkgs.tui.tools/deb stable main" \
   | sudo tee /etc/apt/sources.list.d/tui-tools.list
 sudo apt update
@@ -264,9 +273,21 @@ setup by hand — read it, or read the script first with `curl -fsSL
 https://pkgs.tui.tools/install.sh -o install.sh`:
 
 ```sh
-sudo rpm --import https://pkgs.tui.tools/pubkey.asc
-sudo curl -fsSL -o /etc/yum.repos.d/tui-tools.repo https://pkgs.tui.tools/rpm/tui-tools.repo
-sudo dnf makecache
+k="$(mktemp -d)/tui-tools.asc"
+curl -fsSL --proto =https --tlsv1.2 -o "$k" https://pkgs.tui.tools/pubkey.asc
+# Go on only if this prints "key OK": one key, fingerprint 767CFB337B01F32FFC073F3F389120B277E4FB44.
+[ "$(gpg --show-keys --with-colons "$k" \
+  | awk -F: '$1 == "pub" { p = 1; next } p && $1 == "fpr" { print $10; p = 0 }')" \
+  = 767CFB337B01F32FFC073F3F389120B277E4FB44 ] && echo "key OK" || { echo "WRONG KEY: stop here"; rm -f "$k"; }
+sudo install -d -m 0755 /etc/pki/rpm-gpg
+sudo install -m 0644 "$k" /etc/pki/rpm-gpg/RPM-GPG-KEY-tui-tools
+sudo rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-tui-tools
+printf '%s\n' '[tui-tools]' 'name=tui-tools' 'baseurl=https://pkgs.tui.tools/rpm/$basearch' \
+  'enabled=1' 'gpgcheck=1' 'repo_gpgcheck=1' \
+  'gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-tui-tools' 'metadata_expire=1h' \
+  | sudo tee /etc/yum.repos.d/tui-tools.repo
+# dnf asks to import the key for the index: answer y if it shows 767CFB337B01F32FFC073F3F389120B277E4FB44.
+sudo dnf makecache --repo tui-tools
 ```
 
 Then, and for every other tool in the family:
