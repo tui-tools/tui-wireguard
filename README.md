@@ -301,7 +301,7 @@ Upgrades then arrive with the rest of your system updates.
 ### Any distribution, static binary
 
 ```sh
-curl -fsSL https://github.com/tui-tools/tui-wireguard/releases/download/v0.6.2/tui-wireguard_0.6.2_linux_amd64.tar.gz | tar -xz tui-wireguard
+curl -fsSL https://github.com/tui-tools/tui-wireguard/releases/download/v0.6.3/tui-wireguard_0.6.3_linux_amd64.tar.gz | tar -xz tui-wireguard
 sudo install -m0755 tui-wireguard /usr/local/bin/tui-wireguard
 ```
 
